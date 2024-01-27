@@ -11,7 +11,7 @@ const scene = new THREE.Scene();
 // Infinite wall geometry
 const wallGeometry = new THREE.PlaneGeometry(1000, 1000, 10, 10);
 // Load chain texture
-const chainTexture = new THREE.TextureLoader().load("./public/heart.jpg");
+const chainTexture = new THREE.TextureLoader().load("./heart.jpg");
 chainTexture.wrapS = THREE.RepeatWrapping;
 chainTexture.wrapT = THREE.RepeatWrapping;
 chainTexture.repeat.set(600, 600);
