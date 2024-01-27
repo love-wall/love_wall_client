@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
-import gsap from "gsap";
+const baseUrl = "http://164.92.235.132:3000";
 
 // Constants
 const canvas = document.getElementById("bg");
@@ -11,7 +11,7 @@ const scene = new THREE.Scene();
 // Infinite wall geometry
 const wallGeometry = new THREE.PlaneGeometry(1000, 1000, 10, 10);
 // Load chain texture
-const chainTexture = new THREE.TextureLoader().load("./heart-1.jpg");
+const chainTexture = new THREE.TextureLoader().load("heart.jpg");
 chainTexture.wrapS = THREE.RepeatWrapping;
 chainTexture.wrapT = THREE.RepeatWrapping;
 chainTexture.repeat.set(600, 600);
@@ -69,7 +69,7 @@ function uploadImage(file, x, y) {
   formData.append("x", x);
   formData.append("y", y);
 
-  fetch("http://localhost:3000/upload", {
+  fetch("http://164.92.235.132:3000/upload", {
     // Change the URL to your server address
     method: "POST",
     body: formData,
@@ -135,7 +135,7 @@ function fetchVisibleImages() {
 
   // Fetch images from backend
   fetch(
-    `http://localhost:3000/images?minX=${minX}&maxX=${maxX}&minY=${minY}&maxY=${maxY}`
+    `http://164.92.235.132:3000/images?minX=${minX}&maxX=${maxX}&minY=${minY}&maxY=${maxY}`
   )
     .then((response) => response.json())
     .then((images) => {
@@ -147,7 +147,7 @@ function fetchVisibleImages() {
           )
         ) {
           // Add image to the wall if it doesn't exist
-          addImage(image.x, image.y, `${image.url}`);
+          addImage(image.x, image.y, `${baseUrl}/uploads/${image.url}`);
         }
       });
     })
