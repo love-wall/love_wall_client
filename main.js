@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
-const baseUrl = "http://164.92.235.132:3000";
+const baseUrl = "http://localhost:3000";
 
 // Constants
 const canvas = document.getElementById("bg");
@@ -26,7 +26,7 @@ const sizes = {
 };
 
 // Camera
-const camera = new THREE.PerspectiveCamera(50, sizes.width / sizes.height, 0.1);
+const camera = new THREE.PerspectiveCamera(50, sizes.width / sizes.height, 0.1, 1000);
 camera.position.z = 3;
 scene.add(camera);
 
@@ -47,6 +47,7 @@ renderer.setPixelRatio(2);
 
 // Array to store uploaded images
 const uploadedImages = [];
+let currentWallId = null;
 
 // Function to add an image to the scene
 function addImage(x, y, imageUrl) {
@@ -62,15 +63,36 @@ function addImage(x, y, imageUrl) {
   });
 }
 
+// Function to create a new wall
+function createWall() {
+  fetch(`${baseUrl}/api/walls`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ title: "New Wall", description: "A beautiful wall" })
+  })
+    .then(response => response.json())
+    .then(data => {
+      console.log("Wall created:", data);
+      currentWallId = data.wall.id;
+      const queryString = `?wallId=${currentWallId}`;
+      window.history.pushState({ wallId: currentWallId }, '', queryString);
+    })
+    .catch(error => {
+      console.error("Error creating wall:", error);
+    });
+}
+
 // Function to upload image to server
 function uploadImage(file, x, y) {
   const formData = new FormData();
   formData.append("image", file);
   formData.append("x", x);
   formData.append("y", y);
+  formData.append("wallId", currentWallId);
 
-  fetch("http://164.92.235.132:3000/upload", {
-    // Change the URL to your server address
+  fetch(`${baseUrl}/api/images`, {
     method: "POST",
     body: formData,
   })
@@ -88,8 +110,13 @@ function uploadImage(file, x, y) {
     });
 }
 
-// Event listener for canvas click
+// Event listener for canvas click to upload images
 canvas.addEventListener("click", (event) => {
+  if (!currentWallId) {
+    alert("Please create a wall first.");
+    return;
+  }
+
   const fileInput = document.createElement("input");
   fileInput.type = "file";
   fileInput.accept = "image/*";
@@ -125,17 +152,57 @@ canvas.addEventListener("click", (event) => {
   fileInput.click();
 });
 
+// Debounce function to limit the frequency of API calls
+function debounce(func, wait) {
+  let timeout;
+  return function (...args) {
+    const context = this;
+    clearTimeout(timeout);
+    timeout = setTimeout(() => func.apply(context, args), wait);
+  };
+}
+
+// Function to get the current min and max visible coordinates
+function getVisibleCoordinates() {
+  const raycaster = new THREE.Raycaster();
+
+  const leftBottom = new THREE.Vector2(-1, -1);
+  const rightTop = new THREE.Vector2(1, 1);
+
+  raycaster.setFromCamera(leftBottom, camera);
+  const intersectLeftBottom = raycaster.intersectObject(wall)[0]?.point;
+
+  raycaster.setFromCamera(rightTop, camera);
+  const intersectRightTop = raycaster.intersectObject(wall)[0]?.point;
+
+  if (!intersectLeftBottom || !intersectRightTop) {
+    return null;
+  }
+
+  const minX = intersectLeftBottom.x;
+  const maxX = intersectRightTop.x;
+  const minY = intersectLeftBottom.y;
+  const maxY = intersectRightTop.y;
+
+  return { minX, maxX, minY, maxY };
+}
+
 // Function to fetch images based on visible area
 function fetchVisibleImages() {
-  // Calculate visible area
-  const minX = camera.position.x - (sizes.width / 2) * camera.aspect;
-  const maxX = camera.position.x + (sizes.width / 2) * camera.aspect;
-  const minY = camera.position.y - sizes.height / 2;
-  const maxY = camera.position.y + sizes.height / 2;
+  if (!currentWallId) {
+    return; // Do not attempt to fetch images if there is no wall ID
+  }
+
+  const visibleCoordinates = getVisibleCoordinates();
+  if (!visibleCoordinates) {
+    return; // Do not attempt to fetch images if coordinates could not be determined
+  }
+
+  const { minX, maxX, minY, maxY } = visibleCoordinates;
 
   // Fetch images from backend
   fetch(
-    `http://164.92.235.132:3000/images?minX=${minX}&maxX=${maxX}&minY=${minY}&maxY=${maxY}`
+    `${baseUrl}/api/images?minX=${minX}&maxX=${maxX}&minY=${minY}&maxY=${maxY}&wallId=${currentWallId}`
   )
     .then((response) => response.json())
     .then((images) => {
@@ -143,11 +210,11 @@ function fetchVisibleImages() {
         // Check if image already exists
         if (
           !uploadedImages.some(
-            (uploadedImage) => uploadedImage.userData.imageUrl === image.url
+            (uploadedImage) => uploadedImage.userData && uploadedImage.userData.imageUrl === image.url
           )
         ) {
           // Add image to the wall if it doesn't exist
-          addImage(image.x, image.y, `${baseUrl}/uploads/${image.url}`);
+          addImage(image.x, image.y, `${baseUrl}${image.url}`);
         }
       });
     })
@@ -156,11 +223,21 @@ function fetchVisibleImages() {
     });
 }
 
-// Event listener for scroll
-window.addEventListener("scroll", fetchVisibleImages);
+// Debounced version of fetchVisibleImages
+const debouncedFetchVisibleImages = debounce(fetchVisibleImages, 300);
 
-// Initial fetch when the page loads
-fetchVisibleImages();
+// Event listener for OrbitControls change (includes zoom and pan)
+controls.addEventListener("change", debouncedFetchVisibleImages);
+
+// Initial fetch when the page loads, only if there's a wall ID
+window.addEventListener('load', () => {
+  const urlParams = new URLSearchParams(window.location.search);
+  const wallIdFromUrl = urlParams.get('wallId');
+  if (wallIdFromUrl) {
+    currentWallId = wallIdFromUrl;
+    fetchVisibleImages();
+  }
+});
 
 // Animation loop
 function animate() {
@@ -170,3 +247,6 @@ function animate() {
 }
 
 animate();
+
+// Event listener for the create wall button
+document.getElementById("createWallBtn").addEventListener("click", createWall);
