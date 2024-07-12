@@ -48,9 +48,12 @@ renderer.setPixelRatio(2);
 // Array to store uploaded images
 const uploadedImages = [];
 let currentWallId = null;
+let dragObject = null;
+let offset = new THREE.Vector3();
+let isDragging = false;
 
 // Function to add an image to the scene
-function addImage(x, y, imageUrl) {
+function addImage(id, x, y, imageUrl) {
   const textureLoader = new THREE.TextureLoader();
   textureLoader.load(imageUrl, (texture) => {
     const imageSize = 1; // Adjust the size of the image plane
@@ -58,6 +61,7 @@ function addImage(x, y, imageUrl) {
     const imageMaterial = new THREE.MeshBasicMaterial({ map: texture });
     const imageMesh = new THREE.Mesh(imageGeometry, imageMaterial);
     imageMesh.position.set(x, y, 0); // Set image position
+    imageMesh.userData = { id, imageUrl }; // Store id and imageUrl in userData
     scene.add(imageMesh);
     uploadedImages.push(imageMesh);
   });
@@ -104,6 +108,7 @@ function uploadImage(file, x, y) {
     })
     .then((data) => {
       console.log("Image uploaded:", data);
+      addImage(data.id, x, y, `${baseUrl}${data.url}`);
     })
     .catch((error) => {
       console.error("Error uploading image:", error);
@@ -112,6 +117,11 @@ function uploadImage(file, x, y) {
 
 // Event listener for canvas click to upload images
 canvas.addEventListener("click", (event) => {
+  if (isDragging) {
+    isDragging = false;
+    return; // Dismiss click event if dragging
+  }
+
   if (!currentWallId) {
     alert("Please create a wall first.");
     return;
@@ -140,8 +150,6 @@ canvas.addEventListener("click", (event) => {
           // Get intersection point coordinates
           const intersectPoint = intersects[0].point;
           // Add image at intersection point
-          addImage(intersectPoint.x, intersectPoint.y, imageUrl);
-
           uploadImage(file, intersectPoint.x, intersectPoint.y);
         }
       };
@@ -210,11 +218,11 @@ function fetchVisibleImages() {
         // Check if image already exists
         if (
           !uploadedImages.some(
-            (uploadedImage) => uploadedImage.userData && uploadedImage.userData.imageUrl === image.url
+            (uploadedImage) => uploadedImage.userData && uploadedImage.userData.id === image.id
           )
         ) {
           // Add image to the wall if it doesn't exist
-          addImage(image.x, image.y, `${baseUrl}${image.url}`);
+          addImage(image.id, image.x, image.y, `${baseUrl}${image.url}`);
         }
       });
     })
@@ -222,6 +230,80 @@ function fetchVisibleImages() {
       console.error("Error fetching images:", error);
     });
 }
+
+// Function to update image position on the backend
+function updateImagePosition(id, x, y) {
+  fetch(`${baseUrl}/api/images/position`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ id, x, y })
+  })
+    .then(response => {
+      if (!response.ok) {
+        throw new Error('Failed to update image position');
+      }
+      return response.json();
+    })
+    .then(data => {
+      console.log('Image position updated:', data);
+    })
+    .catch(error => {
+      console.error('Error updating image position:', error);
+    });
+}
+
+// Event listeners for dragging images
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+
+function onMouseDown(event) {
+  mouse.x = (event.clientX / sizes.width) * 2 - 1;
+  mouse.y = -(event.clientY / sizes.height) * 2 + 1;
+
+  raycaster.setFromCamera(mouse, camera);
+
+  const intersects = raycaster.intersectObjects(uploadedImages);
+  if (intersects.length > 0) {
+    dragObject = intersects[0].object;
+    offset.copy(intersects[0].point).sub(dragObject.position);
+    controls.enabled = false;
+  }
+}
+
+function onMouseMove(event) {
+  if (dragObject) {
+    isDragging = true;
+    mouse.x = (event.clientX / sizes.width) * 2 - 1;
+    mouse.y = -(event.clientY / sizes.height) * 2 + 1;
+
+    raycaster.setFromCamera(mouse, camera);
+
+    const intersects = raycaster.intersectObject(wall);
+    if (intersects.length > 0) {
+      const intersectPoint = intersects[0].point;
+      dragObject.position.copy(intersectPoint.sub(offset));
+    }
+  }
+}
+
+function onMouseUp(event) {
+  if (dragObject) {
+    const id = dragObject.userData.id;
+    const { x, y } = dragObject.position;
+    updateImagePosition(id, x, y);
+    dragObject = null;
+    controls.enabled = true;
+    setTimeout(() => {
+      isDragging = false;
+    }, 500);
+  }
+}
+
+canvas.addEventListener('mousedown', onMouseDown);
+canvas.addEventListener('mousemove', onMouseMove);
+canvas.addEventListener('mouseup', onMouseUp);
 
 // Debounced version of fetchVisibleImages
 const debouncedFetchVisibleImages = debounce(fetchVisibleImages, 300);
